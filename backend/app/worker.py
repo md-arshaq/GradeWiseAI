@@ -79,6 +79,12 @@ async def process_sheet_extraction(ctx, evaluation_id: str, sheet_id: str, run_i
             needs_review,
         )
 
+        sheet_status = "review-needed" if needs_review else "evaluation-completed"
+        await db.sheets.update_one(
+            {"_id": ObjectId(sheet_id)},
+            {"$set": {"status": sheet_status}}
+        )
+
         await publish_event(
             evaluation_id=evaluation_id,
             event_type="sheet_completed",

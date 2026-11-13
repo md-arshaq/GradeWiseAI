@@ -91,21 +91,24 @@ async def start_pipeline(evaluation_id: str):
     run_dir = getattr(logger, "run_dir", "")
     log_file = getattr(logger, "log_file", "")
 
-    # Pre-flight check: Verify Ollama and model are ready before marking status as processing
+    # Pre-flight check: Verify Ollama and models (OCR + Eval) are ready before marking status as processing
     from app.services.unified_vlm_service import get_unified_vlm_service
     vlm_svc = get_unified_vlm_service()
-    logger.info("Pre-flight: Checking Ollama model Qwen3-vl:8B (\"Are you up?\")....")
-    is_up, ping_latency, ping_reply = await vlm_svc.ping_model()
-    if not is_up:
-        logger.error("Pre-flight check failed for model '%s': %s", " Qwen3-vl:8B", ping_reply)
+    logger.info("Pre-flight: Checking Ollama models (OCR: '%s', Eval: '%s')...", vlm_svc.ocr_model, vlm_svc.eval_model)
+    is_up_ocr, ping_latency_ocr, reply_ocr = await vlm_svc.ping_model(vlm_svc.ocr_model)
+    is_up_eval, ping_latency_eval, reply_eval = await vlm_svc.ping_model(vlm_svc.eval_model)
+    if not is_up_ocr or not is_up_eval:
+        logger.error("Pre-flight check failed: OCR (%s: %s), Eval (%s: %s)",
+                     vlm_svc.ocr_model, reply_ocr, vlm_svc.eval_model, reply_eval)
         raise HTTPException(
             status_code=503,
             detail=(
-                f"Cannot start pipeline: Ollama model '{' Qwen3-vl:8B'}' is not reachable ({ping_reply}). "
-                f"Please ensure Ollama is running (`ollama serve`) and model '{" Qwen3-vl:8B"}' is loaded."
+                f"Cannot start pipeline: Ollama models failed health check. "
+                f"OCR ({vlm_svc.ocr_model}): {reply_ocr}, Eval ({vlm_svc.eval_model}): {reply_eval}."
             ),
         )
-    logger.info("Pre-flight check passed in %.2fs (Ollama runner ready in RAM).", ping_latency)
+    logger.info("Pre-flight check passed: OCR (%.2fs), Eval (%.2fs). Both models active in VRAM.",
+                ping_latency_ocr, ping_latency_eval)
 
     # Set initial pipeline status and associate run folder
     await db.evaluations.update_one(

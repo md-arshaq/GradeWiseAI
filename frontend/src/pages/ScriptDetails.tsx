@@ -2,6 +2,14 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { get, post } from '@/api/client'
 
+export interface PageTranscript {
+  page_number: number
+  text: string
+  detected_questions?: string[]
+  diagram_description?: string
+  page_ocr_confidence?: number
+}
+
 // Backend API response types
 interface OcrResult {
   sheet_id: string
@@ -9,6 +17,7 @@ interface OcrResult {
   result?: {
     extracted_text: string
     confidence: number
+    per_page_transcripts?: PageTranscript[]
   }
 }
 
@@ -16,6 +25,7 @@ interface ComponentScore {
   component: string
   marks_awarded: number
   max_marks: number
+  confidence?: number
   feedback?: string
   model_answer?: string
   student_evidence?: string
@@ -68,6 +78,9 @@ interface ScriptResultDetails {
   is_bundle?: boolean
   page_count?: number
   pages?: { page_number: number; file_name: string; file_size: number }[]
+  ocr_confidence?: number
+  marking_confidence?: number
+  per_page_transcripts?: PageTranscript[]
 }
 
 function ScriptDetails() {
@@ -79,6 +92,8 @@ function ScriptDetails() {
 
   const [ocrText, setOcrText] = useState<string>('')
   const [details, setDetails] = useState<ScriptResultDetails | null>(null)
+  const [selectedTranscriptTab, setSelectedTranscriptTab] = useState<number | 'full'>('full')
+  const [pageTranscripts, setPageTranscripts] = useState<PageTranscript[]>([])
 
   // Review override state
   const [overrideScore, setOverrideScore] = useState<string>('')
@@ -106,6 +121,9 @@ function ScriptDetails() {
         } else {
           setOcrText('Text transcription not yet available.')
         }
+
+        const pts = detailsRes.per_page_transcripts || ocrRes.result?.per_page_transcripts || []
+        setPageTranscripts(pts)
 
         setDetails(detailsRes)
         if (detailsRes.evaluation) {
@@ -351,33 +369,142 @@ function ScriptDetails() {
         <div className="grid lg:grid-cols-2 gap-6 items-start">
           {/* Left Panel: Digitized Text & Parsed Diagrams */}
           <div className="space-y-6">
-            {/* OCR Text Card */}
-            <div className="bg-white border-2 border-slate-200 rounded-lg overflow-hidden flex flex-col shadow-sm">
-              <div className="bg-slate-50 border-b border-slate-200 p-4 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-blue-100 text-blue-600 rounded">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
+            {/* Stage 1: Verbatim Transcription Card with Page Tabs */}
+            <div className="bg-white border-2 border-slate-200 rounded-xl overflow-hidden flex flex-col shadow-sm">
+              <div className="bg-slate-50 border-b border-slate-200 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-blue-100 text-blue-600 rounded">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-bold text-slate-800">Verbatim Extracted Script & Math (Stage 1)</h2>
+                        {details.ocr_confidence !== undefined && (
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            details.ocr_confidence >= 0.75
+                              ? 'bg-green-100 text-green-700 border border-green-200'
+                              : 'bg-amber-100 text-amber-700 border border-amber-200'
+                          }`}>
+                            ● {Math.round(details.ocr_confidence * 100)}% Readability
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500">Dual-Model Multi-Stage OCR via Qwen3-VL (8B) + Gemma4</p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-800">Verbatim Extracted Script & Math (Stage 1)</h2>
-                    <p className="text-xs text-slate-500">Full handwritten transcription via Unified Qwen3-VL (8B)</p>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const textToCopy = selectedTranscriptTab === 'full'
+                          ? ocrText
+                          : (pageTranscripts.find(p => p.page_number === selectedTranscriptTab)?.text || '')
+                        navigator.clipboard.writeText(textToCopy)
+                      }}
+                      className="text-xs font-semibold px-2.5 py-1 text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50 transition-colors shadow-2xs"
+                      title="Copy current transcript tab"
+                    >
+                      📋 Copy {selectedTranscriptTab === 'full' ? 'Full Text' : `Page ${selectedTranscriptTab}`}
+                    </button>
                   </div>
                 </div>
-                <button
-                  onClick={() => navigator.clipboard.writeText(ocrText)}
-                  className="text-xs font-semibold px-2.5 py-1 text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50 transition-colors shadow-2xs"
-                  title="Copy transcription"
-                >
-                  📋 Copy Text
-                </button>
+
+                {/* Page Navigation Tabs */}
+                {pageTranscripts.length > 0 && (
+                  <div className="mt-3 flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 border-t border-slate-200/80">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTranscriptTab('full')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors shrink-0 ${
+                        selectedTranscriptTab === 'full'
+                          ? 'bg-slate-800 text-white shadow-2xs'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Full Document ({pageTranscripts.length} Pgs)
+                    </button>
+                    {pageTranscripts.map((pt) => {
+                      const isActive = selectedTranscriptTab === pt.page_number
+                      const qCount = pt.detected_questions?.length || 0
+                      return (
+                        <button
+                          key={pt.page_number}
+                          type="button"
+                          onClick={() => setSelectedTranscriptTab(pt.page_number)}
+                          className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 shrink-0 ${
+                            isActive
+                              ? 'bg-blue-600 text-white shadow-2xs'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span>Page {pt.page_number}</span>
+                          {qCount > 0 && (
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                              isActive ? 'bg-blue-700 text-blue-100' : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {pt.detected_questions?.join(', ')}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
+              {/* Tab Content */}
               <div className="p-5 bg-slate-50/50 max-h-[550px] overflow-y-auto">
-                <pre className="font-mono text-sm text-slate-800 whitespace-pre-wrap leading-relaxed select-text">
-                  {ocrText}
-                </pre>
+                {selectedTranscriptTab === 'full' ? (
+                  <pre className="font-mono text-sm text-slate-800 whitespace-pre-wrap leading-relaxed select-text">
+                    {ocrText}
+                  </pre>
+                ) : (() => {
+                  const currentPt = pageTranscripts.find(p => p.page_number === selectedTranscriptTab)
+                  if (!currentPt) {
+                    return <p className="text-slate-500 text-sm italic">No transcript recorded for Page {selectedTranscriptTab}.</p>
+                  }
+                  return (
+                    <div className="space-y-4">
+                      {/* Page Metadata Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-white rounded-lg border border-slate-200 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800">Page {currentPt.page_number}</span>
+                          {currentPt.page_ocr_confidence !== undefined && (
+                            <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono">
+                              OCR: {Math.round(currentPt.page_ocr_confidence * 100)}%
+                            </span>
+                          )}
+                        </div>
+                        {currentPt.detected_questions && currentPt.detected_questions.length > 0 && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-slate-500 font-medium">Questions:</span>
+                            {currentPt.detected_questions.map((q, qidx) => (
+                              <span key={qidx} className="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded font-semibold">
+                                {q}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Page Diagram Note if any */}
+                      {currentPt.diagram_description && (
+                        <div className="p-3 bg-indigo-50/60 border border-indigo-200 rounded-lg text-xs">
+                          <span className="font-bold text-indigo-900 block mb-1">📐 Page Diagram Topology:</span>
+                          <p className="text-indigo-800 font-mono whitespace-pre-wrap">{currentPt.diagram_description}</p>
+                        </div>
+                      )}
+
+                      {/* Verbatim Content */}
+                      <pre className="font-mono text-sm text-slate-800 whitespace-pre-wrap leading-relaxed select-text bg-white p-4 rounded-lg border border-slate-200">
+                        {currentPt.text || '<Blank or unextracted page>'}
+                      </pre>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
 
@@ -567,44 +694,151 @@ function ScriptDetails() {
 
                     <div className="p-5">
                       {/* Sub-components if available */}
-                      {q.component_scores && q.component_scores.length > 0 && (
-                        <div className="mb-4 space-y-3">
-                          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Rubric Criteria & Explainability Breakdown</h4>
-                          {q.component_scores.map((comp, idx) => {
-                            const compPct = comp.max_marks > 0 ? (comp.marks_awarded / comp.max_marks) * 100 : 0
-                            return (
-                              <div key={idx} className="bg-white border border-slate-200 rounded-lg p-3.5 shadow-sm transition-all hover:border-slate-300">
-                                <div className="flex justify-between items-center mb-1.5">
-                                  <span className="text-sm font-semibold text-slate-800">{comp.component}</span>
-                                  <span className="text-sm font-bold text-slate-800">
-                                    {comp.marks_awarded} <span className="text-slate-400 font-normal">/ {comp.max_marks}</span>
-                                  </span>
-                                </div>
-                                <div className="w-full bg-slate-100 rounded-full h-2 mb-2">
-                                  <div
-                                    className={`h-2 rounded-full ${getProgressColor(compPct)}`}
-                                    style={{ width: `${compPct}%` }}
-                                  ></div>
-                                </div>
+                      {q.component_scores && q.component_scores.length > 0 && (() => {
+                        // Group components by Part (Part A, Part B, Part C)
+                        const groupedParts = q.component_scores.reduce((acc: Record<string, any[]>, comp: any) => {
+                          const p = comp.part || 'Part A'
+                          if (!acc[p]) acc[p] = []
+                          acc[p].push(comp)
+                          return acc
+                        }, {})
 
-                                {comp.feedback && (
-                                  <div className="mt-2 text-xs bg-slate-50 border border-slate-200/80 rounded-md p-2.5 text-slate-700 leading-relaxed">
-                                    <span className="font-semibold text-slate-900">Explainability Rationale: </span>
-                                    <span>{comp.feedback}</span>
-                                  </div>
-                                )}
+                        return (
+                          <div className="mb-4 space-y-4">
+                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                              Rubric Criteria & College Internals Breakdown
+                            </h4>
 
-                                {comp.student_evidence && comp.student_evidence !== 'Not found in student script' && (
-                                  <div className="mt-1.5 text-[11px] text-slate-600 bg-amber-50/70 border border-amber-200/60 rounded px-2.5 py-1.5 font-mono">
-                                    <span className="font-semibold text-amber-900 font-sans">Script Evidence: </span>
-                                    <span>"{comp.student_evidence}"</span>
+                            {Object.entries(groupedParts).map(([partName, comps]) => {
+                              const partCountedScore = comps
+                                .filter((c) => c.is_counted_in_total !== false && !c.is_skipped_choice)
+                                .reduce((sum, c) => sum + (c.marks_awarded || 0), 0)
+                              const partMaxMarks =
+                                partName === 'Part A'
+                                  ? 10
+                                  : partName === 'Part B'
+                                  ? 20
+                                  : partName === 'Part C'
+                                  ? 20
+                                  : comps
+                                      .filter((c) => c.is_counted_in_total !== false && !c.is_skipped_choice)
+                                      .reduce((sum, c) => sum + (c.max_marks || 0), 0)
+
+                              return (
+                                <div key={partName} className="space-y-3">
+                                  {/* Part Header Banner */}
+                                  <div className="bg-slate-100 border border-slate-200 rounded-lg px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-slate-800 text-xs tracking-wider uppercase">
+                                        {partName}
+                                      </span>
+                                      {partName === 'Part A' && (
+                                        <span className="text-[10px] font-semibold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full border border-blue-200">
+                                          Compulsory (10 Marks)
+                                        </span>
+                                      )}
+                                      {partName === 'Part B' && (
+                                        <span className="text-[10px] font-semibold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full border border-purple-200">
+                                          Compulsory + Choice (20 Marks)
+                                        </span>
+                                      )}
+                                      {partName === 'Part C' && (
+                                        <span className="text-[10px] font-semibold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-200">
+                                          Full Choice (20 Marks)
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="font-mono text-xs font-bold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                      Subtotal: {partCountedScore} / {partMaxMarks} Marks
+                                    </span>
                                   </div>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
+
+                                  {/* Component Cards in Part */}
+                                  {comps.map((comp, idx) => {
+                                    const isSkipped = comp.is_skipped_choice || comp.is_counted_in_total === false
+                                    const compPct = comp.max_marks > 0 ? (comp.marks_awarded / comp.max_marks) * 100 : 0
+
+                                    return (
+                                      <div
+                                        key={idx}
+                                        className={`rounded-lg p-3.5 shadow-sm transition-all ${
+                                          isSkipped
+                                            ? 'bg-slate-50/70 border border-dashed border-slate-300 opacity-75'
+                                            : 'bg-white border border-slate-200 hover:border-slate-300'
+                                        }`}
+                                      >
+                                        <div className="flex flex-wrap justify-between items-center gap-2 mb-1.5">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <span className={`text-sm font-semibold ${isSkipped ? 'text-slate-600 line-through' : 'text-slate-800'}`}>
+                                              {comp.component}
+                                            </span>
+
+                                            {isSkipped ? (
+                                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-200 text-slate-700 border border-slate-300">
+                                                ⊘ Optional Choice (Skipped)
+                                              </span>
+                                            ) : (
+                                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                ✓ Counted in Total
+                                              </span>
+                                            )}
+
+                                            {!isSkipped && comp.confidence !== undefined && (
+                                              <span
+                                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                                  comp.confidence >= 0.7
+                                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                    : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                                }`}
+                                              >
+                                                ● {Math.round(comp.confidence * 100)}% Certainty
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <span className="text-sm font-bold text-slate-800">
+                                            {comp.marks_awarded}{' '}
+                                            <span className="text-slate-400 font-normal">/ {comp.max_marks}</span>
+                                          </span>
+                                        </div>
+
+                                        {!isSkipped && (
+                                          <div className="w-full bg-slate-100 rounded-full h-2 mb-2">
+                                            <div
+                                              className={`h-2 rounded-full ${getProgressColor(compPct)}`}
+                                              style={{ width: `${compPct}%` }}
+                                            ></div>
+                                          </div>
+                                        )}
+
+                                        {isSkipped ? (
+                                          <div className="mt-1 text-[11px] text-slate-500 italic">
+                                            Alternative choice was attempted by student; this question is excluded from the 50-mark total and review flags.
+                                          </div>
+                                        ) : (
+                                          comp.feedback && (
+                                            <div className="mt-2 text-xs bg-slate-50 border border-slate-200/80 rounded-md p-2.5 text-slate-700 leading-relaxed">
+                                              <span className="font-semibold text-slate-900">Explainability Rationale: </span>
+                                              <span>{comp.feedback}</span>
+                                            </div>
+                                          )
+                                        )}
+
+                                        {!isSkipped && comp.student_evidence && comp.student_evidence !== 'Not found in student script' && (
+                                          <div className="mt-1.5 text-[11px] text-slate-600 bg-amber-50/70 border border-amber-200/60 rounded px-2.5 py-1.5 font-mono">
+                                            <span className="font-semibold text-amber-900 font-sans">Script Evidence: </span>
+                                            <span>"{comp.student_evidence}"</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )
+                      })()}
 
                       {/* Feedback */}
                       {q.feedback && (

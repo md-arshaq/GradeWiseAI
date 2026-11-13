@@ -26,12 +26,18 @@ class Settings(BaseSettings):
     redis_host: str = "127.0.0.1"
     redis_port: int = 6379
 
-    # Ollama Unified VLM
+    # Ollama Unified VLM & Multi-Stage Architecture
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "gemma4:e4b"
+    ocr_model: str = "qwen2.5vl:7b"
+    eval_model: str = "gemma4:e4b"
+    ocr_concurrency: int = 2
+    ocr_batch_size: int = 1
     image_max_dim: int = 768
     vlm_num_ctx: int = 49152
     vlm_max_tokens: int = 24576
+    default_ocr_confidence_threshold: float = 0.75
+    default_marking_confidence_threshold: float = 0.70
 
     # Logging
     log_dir: str = "logs"

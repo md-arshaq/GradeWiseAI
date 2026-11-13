@@ -56,6 +56,7 @@ class OCRResultDetail(BaseModel):
     extracted_text: str
     confidence: float
     processing_time: int  # milliseconds
+    per_page_transcripts: list[dict] = []
 
 
 class OCRResultResponse(BaseModel):

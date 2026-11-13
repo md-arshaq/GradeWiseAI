@@ -28,6 +28,8 @@ interface ScriptResult {
   is_bundle?: boolean
   page_count?: number
   pages?: Array<{ file_name?: string; page_number?: number }>
+  ocr_confidence?: number
+  marking_confidence?: number
 }
 
 interface ResultsOverviewApiResponse {

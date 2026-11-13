@@ -55,3 +55,12 @@ export function upload<T>(path: string, formData: FormData): Promise<T> {
 export function del<T>(path: string): Promise<T> {
   return request<T>(`${API_BASE}${path}`, { method: 'DELETE' })
 }
+
+/** PUT helper (JSON body) */
+export function put<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(`${API_BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+}

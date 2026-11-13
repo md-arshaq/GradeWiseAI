@@ -1,34 +1,77 @@
 import { useState, useEffect } from 'react'
 import type { OcrSensitivity } from '@/types'
+import { get, put } from '@/api/client'
+
+interface SystemSettingsResponse {
+  success: boolean
+  ocr_sensitivity: OcrSensitivity
+  ocr_confidence_threshold?: number
+  marking_confidence_threshold?: number
+  cache_enabled: boolean
+}
 
 function Settings() {
-  // State management with localStorage persistence
+  // State management
   const [ocrSensitivity, setOcrSensitivity] = useState<OcrSensitivity>('medium')
+  const [ocrThreshold, setOcrThreshold] = useState<number>(75)
+  const [markingThreshold, setMarkingThreshold] = useState<number>(70)
   const [showClearCacheConfirm, setShowClearCacheConfirm] = useState(false)
   const [cacheCleared, setCacheCleared] = useState(false)
   const [settingsSaved, setSettingsSaved] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
-  // Load settings from localStorage on mount
+  // Load settings on mount from backend and localStorage
   useEffect(() => {
-    const savedSensitivity = localStorage.getItem('ocr_sensitivity') as OcrSensitivity
-    if (savedSensitivity) {
-      setOcrSensitivity(savedSensitivity)
+    const loadSettings = async () => {
+      try {
+        const data = await get<SystemSettingsResponse>('/settings')
+        if (data.ocr_sensitivity) {
+          setOcrSensitivity(data.ocr_sensitivity)
+          localStorage.setItem('ocr_sensitivity', data.ocr_sensitivity)
+        }
+        if (data.ocr_confidence_threshold !== undefined) {
+          setOcrThreshold(Math.round(data.ocr_confidence_threshold * 100))
+        }
+        if (data.marking_confidence_threshold !== undefined) {
+          setMarkingThreshold(Math.round(data.marking_confidence_threshold * 100))
+        }
+      } catch {
+        // Fallback to localStorage
+        const savedSensitivity = localStorage.getItem('ocr_sensitivity') as OcrSensitivity
+        if (savedSensitivity) setOcrSensitivity(savedSensitivity)
+      }
     }
+
+    loadSettings()
   }, [])
 
-  // Save OCR sensitivity to localStorage
+  // Save settings to backend and localStorage
+  const saveSettings = async (sens: OcrSensitivity, ocrThresh: number, markThresh: number) => {
+    setIsSaving(true)
+    try {
+      await put<SystemSettingsResponse>('/settings', {
+        ocr_sensitivity: sens,
+        ocr_confidence_threshold: ocrThresh / 100,
+        marking_confidence_threshold: markThresh / 100,
+      })
+      localStorage.setItem('ocr_sensitivity', sens)
+      setSettingsSaved(true)
+      setTimeout(() => setSettingsSaved(false), 3000)
+    } catch (err) {
+      console.error('Failed to save settings to server:', err)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Handle OCR sensitivity change
   const handleSensitivityChange = (value: OcrSensitivity) => {
     setOcrSensitivity(value)
-    localStorage.setItem('ocr_sensitivity', value)
-    setSettingsSaved(true)
-
-    // Hide success message after 3 seconds
-    setTimeout(() => setSettingsSaved(false), 3000)
+    saveSettings(value, ocrThreshold, markingThreshold)
   }
 
   // Handle clear cache action
   const handleClearCache = () => {
-    // Clear all localStorage except user preferences
     const sensitivityBackup = localStorage.getItem('ocr_sensitivity')
     localStorage.clear()
     if (sensitivityBackup) {
@@ -37,12 +80,9 @@ function Settings() {
 
     setCacheCleared(true)
     setShowClearCacheConfirm(false)
-
-    // Hide success message after 5 seconds
     setTimeout(() => setCacheCleared(false), 5000)
   }
 
-  // Get sensitivity description
   const getSensitivityDescription = (level: OcrSensitivity): string => {
     const descriptions = {
       low: 'Faster processing, may miss some characters. Best for clean, printed text.',
@@ -58,13 +98,13 @@ function Settings() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-800 mb-2">Settings</h1>
         <p className="text-slate-600">
-          Configure global application preferences and manage data
+          Configure global application preferences, AI confidence verification, and data management
         </p>
       </div>
 
       {/* Settings Saved Notification */}
       {settingsSaved && (
-        <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 mb-6 animate-fadeIn">
+        <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 mb-6">
           <div className="flex items-center gap-2">
             <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -74,6 +114,105 @@ function Settings() {
         </div>
       )}
 
+      {/* Stage 4 Confidence-Based Verification Thresholds Section */}
+      <div className="bg-white border-2 border-slate-200 rounded-lg p-6 mb-6">
+        <div className="flex items-start gap-3 mb-6">
+          <div className="p-2 bg-amber-100 text-amber-700 rounded-lg shrink-0 mt-0.5">
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-slate-800">Stage 4 Confidence-Based Verification</h2>
+              <span className="text-[11px] font-semibold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-300">
+                Weak-Link Rule
+              </span>
+            </div>
+            <p className="text-sm text-slate-600 mt-1">
+              Scripts are flagged for Educator Review only when AI certainty falls below these sensitivity thresholds.
+              Low marks alone will <strong>never</strong> flag an answer sheet.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          {/* OCR Confidence Threshold Slider */}
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
+            <div className="flex justify-between items-center mb-2">
+              <div>
+                <label className="text-sm font-bold text-slate-800">
+                  OCR / Handwriting Readability Threshold
+                </label>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Flags scripts when handwriting legibility or transcription certainty is below this level.
+                </p>
+              </div>
+              <span className="text-sm font-bold px-3 py-1 bg-white border border-slate-300 rounded-md text-blue-700 font-mono">
+                {ocrThreshold}%
+              </span>
+            </div>
+
+            <div className="flex items-center gap-4 mt-3">
+              <span className="text-xs text-slate-400 font-semibold">50% (Permissive)</span>
+              <input
+                type="range"
+                min="50"
+                max="95"
+                step="1"
+                value={ocrThreshold}
+                onChange={(e) => setOcrThreshold(Number(e.target.value))}
+                onMouseUp={() => saveSettings(ocrSensitivity, ocrThreshold, markingThreshold)}
+                className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              />
+              <span className="text-xs text-slate-400 font-semibold">95% (Strict)</span>
+            </div>
+          </div>
+
+          {/* Marking Confidence Threshold Slider */}
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
+            <div className="flex justify-between items-center mb-2">
+              <div>
+                <label className="text-sm font-bold text-slate-800">
+                  Rubric Grading Certainty Threshold
+                </label>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Flags scripts if the AI's grading certainty on <strong>any individual rubric component</strong> falls below this level.
+                </p>
+              </div>
+              <span className="text-sm font-bold px-3 py-1 bg-white border border-slate-300 rounded-md text-amber-700 font-mono">
+                {markingThreshold}%
+              </span>
+            </div>
+
+            <div className="flex items-center gap-4 mt-3">
+              <span className="text-xs text-slate-400 font-semibold">50% (Permissive)</span>
+              <input
+                type="range"
+                min="50"
+                max="95"
+                step="1"
+                value={markingThreshold}
+                onChange={(e) => setMarkingThreshold(Number(e.target.value))}
+                onMouseUp={() => saveSettings(ocrSensitivity, ocrThreshold, markingThreshold)}
+                className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-amber-600"
+              />
+              <span className="text-xs text-slate-400 font-semibold">95% (Strict)</span>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              onClick={() => saveSettings(ocrSensitivity, ocrThreshold, markingThreshold)}
+              disabled={isSaving}
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-lg transition-colors shadow-sm disabled:opacity-50"
+            >
+              {isSaving ? 'Saving...' : 'Apply Thresholds ✓'}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* OCR Settings Section */}
       <div className="bg-white border-2 border-slate-200 rounded-lg p-6 mb-6">
         <div className="flex items-start gap-3 mb-6">
@@ -82,17 +221,16 @@ function Settings() {
             <path fillRule="evenodd" d="M7 2a1 1 0 012 0v1h2V2a1 1 0 112 0v1h2a2 2 0 012 2v2h1a1 1 0 110 2h-1v2h1a1 1 0 110 2h-1v2a2 2 0 01-2 2h-2v1a1 1 0 11-2 0v-1H9v1a1 1 0 11-2 0v-1H5a2 2 0 01-2-2v-2H2a1 1 0 110-2h1V9H2a1 1 0 010-2h1V5a2 2 0 012-2h2V2zM5 5h10v10H5V5z" clipRule="evenodd" />
           </svg>
           <div className="flex-1">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">OCR Processing</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-2">OCR Processing Sensitivity</h2>
             <p className="text-sm text-slate-600">
-              Configure optical character recognition sensitivity for answer sheet scanning
+              Configure optical character recognition preprocessing mode for answer sheet scanning
             </p>
           </div>
         </div>
 
-        {/* OCR Sensitivity Control */}
         <div>
           <label htmlFor="ocr-sensitivity" className="block text-sm font-semibold text-slate-700 mb-3">
-            OCR Sensitivity Level
+            Preprocessing Mode
           </label>
 
           <select
@@ -106,7 +244,6 @@ function Settings() {
             <option value="high">High - Maximum Accuracy</option>
           </select>
 
-          {/* Description Box */}
           <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
             <div className="flex gap-3">
               <svg className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -139,7 +276,6 @@ function Settings() {
           </div>
         </div>
 
-        {/* Clear Cache Section */}
         <div>
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
             <div className="flex items-start justify-between gap-4">
@@ -153,7 +289,7 @@ function Settings() {
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                   </svg>
-                  <span>Your OCR sensitivity setting will be preserved</span>
+                  <span>Your OCR and confidence settings will be preserved</span>
                 </div>
               </div>
 
@@ -170,7 +306,7 @@ function Settings() {
 
       {/* Cache Cleared Success Message */}
       {cacheCleared && (
-        <div className="bg-green-50 border-2 border-green-200 rounded-lg p-6 mb-6 animate-fadeIn">
+        <div className="bg-green-50 border-2 border-green-200 rounded-lg p-6 mb-6">
           <div className="flex items-start gap-3">
             <svg className="w-6 h-6 text-green-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -184,30 +320,6 @@ function Settings() {
           </div>
         </div>
       )}
-
-      {/* Application Info */}
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-6">
-        <h3 className="font-bold text-slate-800 mb-4">Application Information</h3>
-        <div className="space-y-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-slate-600">Version</span>
-            <span className="font-semibold text-slate-800">1.0.0</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-600">Mode</span>
-            <span className="font-semibold text-slate-800">Offline</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-600">Privacy Status</span>
-            <span className="font-semibold text-green-700 flex items-center gap-1">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-              Protected
-            </span>
-          </div>
-        </div>
-      </div>
 
       {/* Confirmation Modal */}
       {showClearCacheConfirm && (
@@ -225,11 +337,6 @@ function Settings() {
                   This will permanently remove all cached evaluation data, uploaded files, and temporary results.
                   This action cannot be undone.
                 </p>
-                <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mb-4">
-                  <p className="text-xs text-yellow-800">
-                    <span className="font-semibold">Note:</span> Your OCR sensitivity setting and other preferences will be preserved.
-                  </p>
-                </div>
               </div>
             </div>
 

@@ -74,6 +74,8 @@ async def get_results_summary(evaluation_id: str):
                 "is_bundle": {"$ifNull": ["$is_bundle", False]},
                 "page_count": {"$ifNull": ["$page_count", 1]},
                 "pages": {"$ifNull": ["$pages", []]},
+                "ocr_confidence": {"$ifNull": ["$ocr_confidence", 1.0]},
+                "marking_confidence": {"$ifNull": ["$marking_confidence", 1.0]},
             }
         },
         {"$sort": {"percentage": -1}},
@@ -115,8 +117,11 @@ async def get_results_summary(evaluation_id: str):
                 eval_method = "fallback"
 
             for comp in q.get("component_scores", []):
+                # Ignore skipped or uncounted choice questions
+                if comp.get("is_skipped_choice") or not comp.get("is_counted_in_total", True):
+                    continue
                 loss = comp.get("max_marks", 0) - comp.get("marks_awarded", 0)
-                if loss > max_loss:
+                if loss > 0 and loss > max_loss:
                     max_loss = loss
                     top_loss_component = f"{comp.get('component', 'Unknown')} (-{loss})"
 
@@ -208,16 +213,33 @@ async def get_detailed_result(evaluation_id: str, sheet_id: str):
     if not rubric_components:
         rubric_components = DEFAULT_FALLBACK_COMPONENTS
 
-    # Ensure model answers on question component_scores match rubric components if blank
-    comp_map = {c["name"].lower(): c.get("model_answer", "") for c in rubric_components}
+    # Ensure metadata and model answers on question component_scores match rubric components
+    comp_map = {c.get("name", "").lower(): c for c in rubric_components}
     for q in eval_result.get("questions", []):
         for comp in q.get("component_scores", []):
-            if not comp.get("model_answer"):
-                c_name = comp.get("component", "").lower()
-                for k, v in comp_map.items():
-                    if k in c_name or c_name in k:
-                        comp["model_answer"] = v
-                        break
+            c_name = comp.get("component", "").lower()
+            matching_rc = None
+            for k, rc in comp_map.items():
+                if k in c_name or c_name in k or (len(k) > 4 and k[:4] in c_name):
+                    matching_rc = rc
+                    break
+            if matching_rc:
+                if not comp.get("model_answer"):
+                    comp["model_answer"] = matching_rc.get("model_answer", "")
+                if "part" not in comp or not comp.get("part"):
+                    comp["part"] = matching_rc.get("part", "Part A")
+                if "is_compulsory" not in comp:
+                    comp["is_compulsory"] = matching_rc.get("is_compulsory", True)
+                if "choice_group" not in comp:
+                    comp["choice_group"] = matching_rc.get("choice_group", "")
+                if "choice_option" not in comp:
+                    comp["choice_option"] = matching_rc.get("choice_option", "")
+                if matching_rc.get("marks") and comp.get("max_marks", 0) != matching_rc.get("marks"):
+                    comp["max_marks"] = float(matching_rc.get("marks"))
+            if "is_counted_in_total" not in comp:
+                comp["is_counted_in_total"] = not comp.get("is_skipped_choice", False)
+            if "is_skipped_choice" not in comp:
+                comp["is_skipped_choice"] = not comp.get("is_counted_in_total", True)
 
     pct = eval_result.get("percentage", 0)
     boundaries_list = [
@@ -263,6 +285,8 @@ async def get_detailed_result(evaluation_id: str, sheet_id: str):
         "needs_human_review": doc.get("needs_human_review", False),
         "review_reasons": doc.get("review_reasons", []),
         "diagram_description": doc.get("diagram_descriptions", ""),
+        "ocr_text": doc.get("ocr_text", ""),
+        "per_page_transcripts": doc.get("per_page_transcripts", []),
         "evaluation": eval_result,
         "crops": doc.get("crops", []),
         "status": doc.get("status", "unknown"),
@@ -270,6 +294,8 @@ async def get_detailed_result(evaluation_id: str, sheet_id: str):
         "is_bundle": doc.get("is_bundle", False),
         "page_count": doc.get("page_count", len(doc.get("pages", [])) or 1),
         "pages": doc.get("pages", []),
+        "ocr_confidence": doc.get("ocr_confidence", 1.0),
+        "marking_confidence": doc.get("marking_confidence", 1.0),
         "rubric_file_name": rubric_file_name,
         "rubric_components": rubric_components,
         "rubric_text": rubric_text,

@@ -123,6 +123,34 @@ async def upload_sheets(
         file_size = os.path.getsize(dest_path)
         saved_files.append({"name": safe_filename, "path": dest_path, "size": file_size})
 
+    # Expand any PDF files into rendered PNG pages so every page is evaluated & viewable
+    expanded_files = []
+    for sf in saved_files:
+        if sf["name"].lower().endswith(".pdf"):
+            try:
+                import pypdfium2 as pdfium
+                pdf = pdfium.PdfDocument(sf["path"])
+                base, _ = os.path.splitext(sf["name"])
+                if len(pdf) > 0:
+                    for p_idx, page in enumerate(pdf):
+                        p_img = page.render(scale=1.5).to_pil()
+                        p_name = f"{base}_page_{p_idx + 1}.png"
+                        p_dest = os.path.join(upload_dir, p_name)
+                        p_img.save(p_dest, format="PNG")
+                        expanded_files.append({
+                            "name": p_name,
+                            "path": p_dest,
+                            "size": os.path.getsize(p_dest),
+                        })
+                else:
+                    expanded_files.append(sf)
+            except Exception as e:
+                print(f"[Sheets] Error rasterizing PDF {sf['name']}: {e}")
+                expanded_files.append(sf)
+        else:
+            expanded_files.append(sf)
+    saved_files = expanded_files
+
     # Sort files chronologically/alphabetically by filename so pages are in natural order
     saved_files.sort(key=lambda x: x["name"])
     uploaded: list[UploadedSheetInfo] = []

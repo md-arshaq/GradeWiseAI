@@ -111,11 +111,24 @@ export default function ProcessEvaluation() {
     }))
   )
 
-  // Update a specific stage
+  // Update a specific stage or multiple stages
   const updateStage = useCallback((stageIndex: number, updates: Partial<EvaluationStage>) => {
     setStages((prev) => {
       const copy = [...prev]
       copy[stageIndex] = { ...copy[stageIndex], ...updates }
+      return copy
+    })
+  }, [])
+
+  const updateStages = useCallback((updates: Record<number, Partial<EvaluationStage>>) => {
+    setStages((prev) => {
+      const copy = [...prev]
+      Object.entries(updates).forEach(([idx, upd]) => {
+        const i = Number(idx)
+        if (copy[i]) {
+          copy[i] = { ...copy[i], ...upd }
+        }
+      })
       return copy
     })
   }, [])
@@ -165,22 +178,62 @@ export default function ProcessEvaluation() {
           updateStage(0, { status: 'in-progress', progress: 50 })
         } else if (payload.type === 'sheet_start') {
           updateStage(0, { status: 'completed', progress: 100 })
-          updateStage(1, { status: 'in-progress', progress: 20 })
-          updateStage(2, { status: 'pending', progress: 0 })
+          updateStage(1, { status: 'in-progress', progress: 25 })
         } else if (payload.type === 'vlm_ping') {
+          updateStage(0, { status: 'completed', progress: 100 })
           updateStage(1, { status: 'in-progress', progress: 35 })
         } else if (payload.type === 'vlm_ping_ok') {
           updateStage(1, { status: 'in-progress', progress: 50 })
+        } else if (payload.type === 'ocr_start') {
+          updateStages({
+            0: { status: 'completed', progress: 100 },
+            1: { status: 'in-progress', progress: 65 },
+            2: { status: 'in-progress', progress: 45 },
+          })
+        } else if (payload.type === 'ocr_batch_start') {
+          updateStages({
+            1: { status: 'in-progress', progress: 80 },
+            2: { status: 'in-progress', progress: 60 },
+          })
+        } else if (payload.type === 'ocr_batch_done') {
+          updateStages({
+            1: { status: 'in-progress', progress: 95 },
+            2: { status: 'in-progress', progress: 85 },
+          })
+        } else if (payload.type === 'ocr_complete') {
+          updateStages({
+            0: { status: 'completed', progress: 100 },
+            1: { status: 'completed', progress: 100 },
+            2: { status: 'completed', progress: 100 },
+            3: { status: 'in-progress', progress: 40 },
+          })
+        } else if (payload.type === 'part_eval_start') {
+          updateStages({
+            0: { status: 'completed', progress: 100 },
+            1: { status: 'completed', progress: 100 },
+            2: { status: 'completed', progress: 100 },
+            3: { status: 'in-progress', progress: 70 },
+          })
+        } else if (payload.type === 'part_eval_done') {
+          updateStages({
+            0: { status: 'completed', progress: 100 },
+            1: { status: 'completed', progress: 100 },
+            2: { status: 'completed', progress: 100 },
+            3: { status: 'in-progress', progress: 85 },
+          })
         } else if (payload.type === 'vlm_dispatch') {
-          updateStage(1, { status: 'in-progress', progress: 85 })
-          updateStage(2, { status: 'in-progress', progress: 80 })
-        } else if (payload.type === 'vlm_complete') {
-          updateStage(1, { status: 'completed', progress: 100 })
-          updateStage(2, { status: 'completed', progress: 100 })
-          updateStage(3, { status: 'in-progress', progress: 65 })
-        } else if (payload.type === 'sheet_completed') {
-          updateStage(3, { status: 'completed', progress: 100 })
-          updateStage(4, { status: 'completed', progress: 100 })
+          updateStages({
+            1: { status: 'in-progress', progress: 85 },
+            2: { status: 'in-progress', progress: 80 },
+          })
+        } else if (payload.type === 'vlm_complete' || payload.type === 'pipeline_complete' || payload.type === 'sheet_completed') {
+          updateStages({
+            0: { status: 'completed', progress: 100 },
+            1: { status: 'completed', progress: 100 },
+            2: { status: 'completed', progress: 100 },
+            3: { status: 'completed', progress: 100 },
+            4: { status: 'completed', progress: 100 },
+          })
           if (payload.data?.needs_review) {
             setNeedsReviewCount((c) => c + 1)
           }
@@ -231,55 +284,15 @@ export default function ProcessEvaluation() {
           setRunFolder(pipelineData.latest_log_dir)
         }
 
-        // Stage 0: Preprocessing & Crop
-        const s0Done = sheets.filter((s) =>
-          ['preprocessing-completed', 'transcribing-pending', 'transcribing-processing', 'grading-pending', 'grading-processing', 'evaluation-completed', 'review-needed'].includes(s.status)
-        ).length
-        const s0Pct = Math.round((s0Done / total) * 100)
-
-        // Stage 1 & 2: Unified Multimodal Transcription & Diagrams
-        const isVlmRunning = sheets.some((s) => ['transcribing-processing'].includes(s.status))
-        const s1Done = sheets.filter((s) =>
-          ['grading-pending', 'grading-processing', 'evaluation-completed', 'review-needed'].includes(s.status)
-        ).length
-        const s1Pct = Math.round((s1Done / total) * 100)
-
-        // Stage 3 & 4: Rubric Assessment & Triage
-        const s3Done = sheets.filter((s) =>
-          ['evaluation-completed', 'review-needed'].includes(s.status)
-        ).length
-        const s3Pct = Math.round((s3Done / total) * 100)
-        const s4Pct = s3Pct
-
-        // Sync stage indicators
-        updateStage(0, {
-          progress: s0Pct,
-          status: s0Pct === 100 ? 'completed' : s0Pct > 0 ? 'in-progress' : 'pending',
-        })
-        updateStage(1, {
-          progress: s1Pct === 100 ? 100 : (isVlmRunning ? Math.max(65, s1Pct) : s1Pct),
-          status: s1Pct === 100 ? 'completed' : (isVlmRunning || s1Pct > 0) ? 'in-progress' : 'pending',
-        })
-        updateStage(2, {
-          progress: s1Pct === 100 ? 100 : (isVlmRunning ? Math.max(50, s1Pct) : s1Pct),
-          status: s1Pct === 100 ? 'completed' : (isVlmRunning || s1Pct > 0) ? 'in-progress' : 'pending',
-        })
-        updateStage(3, {
-          progress: s3Pct,
-          status: s3Pct === 100 ? 'completed' : s3Pct > 0 ? 'in-progress' : 'pending',
-        })
-        updateStage(4, {
-          progress: s4Pct,
-          status: s4Pct === 100 ? 'completed' : s4Pct > 0 ? 'in-progress' : 'pending',
-        })
+        const failedCount = pipelineData.failed_sheets || sheets.filter((s) => s.status === 'failed').length
+        const completedCount = sheets.filter((s) => ['evaluation-completed', 'review-needed'].includes(s.status)).length
 
         // Capture backend errors
         if (pipelineData.errors && pipelineData.errors.length > 0) {
           setError(pipelineData.errors.join('\n'))
         }
 
-        const failedCount = pipelineData.failed_sheets || sheets.filter((s) => s.status === 'failed').length
-
+        // 1. Error / Failure termination
         if (pipelineData.status === 'failed' || (failedCount === total && total > 0)) {
           clearInterval(pollingRef.current!)
           pollingRef.current = null
@@ -292,23 +305,86 @@ export default function ProcessEvaluation() {
           return
         }
 
-        // Check completion
-        if (pipelineData.status === 'completed' || ((s3Done + failedCount) === total && total > 0)) {
+        // 2. Successful Completion Check (highest priority)
+        if (pipelineData.status === 'completed' || ((completedCount + failedCount) === total && total > 0)) {
           clearInterval(pollingRef.current!)
           pollingRef.current = null
-          if (failedCount > 0 && s3Done === 0) {
+          if (failedCount > 0 && completedCount === 0) {
             setEvaluationStatus('error')
             setStages((prev) => prev.map((st) => ({ ...st, status: 'error' })))
           } else {
             setEvaluationStatus('completed')
             setStages((prev) => prev.map((st) => ({ ...st, status: 'completed', progress: 100 })))
           }
+          return
         }
+
+        // 3. In-flight progress computation
+        // Stage 0: Preprocessing & Crop
+        const s0Done = sheets.filter((s) =>
+          ['preprocessing-completed', 'transcribing-pending', 'transcribing-processing', 'grading-pending', 'grading-processing', 'evaluation-completed', 'review-needed'].includes(s.status)
+        ).length
+        const s0Pct = total > 0 ? Math.round((s0Done / total) * 100) : 0
+
+        // Stage 1 & 2: Unified Multimodal Transcription & Diagrams
+        const isVlmTranscribing = sheets.some((s) => s.status === 'transcribing-processing')
+        const isVlmGrading = sheets.some((s) => s.status === 'grading-processing')
+        const isVlmRunning = isVlmTranscribing || isVlmGrading
+        const s1Done = sheets.filter((s) =>
+          ['grading-pending', 'grading-processing', 'evaluation-completed', 'review-needed'].includes(s.status)
+        ).length
+        const s1Pct = total > 0 ? Math.round((s1Done / total) * 100) : 0
+
+        // Stage 3 & 4: Rubric Assessment & Triage
+        const s3Done = completedCount
+        const s3Pct = total > 0 ? Math.round((s3Done / total) * 100) : 0
+        const s4Pct = s3Pct
+
+        // Sync stage indicators monotonically without overwriting higher progress from SSE
+        setStages((prev) => {
+          const next = [...prev]
+          // Stage 0
+          const p0 = Math.max(next[0].progress, s0Pct)
+          next[0] = {
+            ...next[0],
+            progress: p0,
+            status: p0 === 100 ? 'completed' : p0 > 0 ? 'in-progress' : next[0].status,
+          }
+          // Stage 1
+          const p1 = Math.max(next[1].progress, s1Pct === 100 ? 100 : (isVlmTranscribing ? 80 : s1Pct))
+          next[1] = {
+            ...next[1],
+            progress: p1,
+            status: p1 === 100 ? 'completed' : (isVlmRunning || p1 > 0) ? 'in-progress' : next[1].status,
+          }
+          // Stage 2
+          const p2 = Math.max(next[2].progress, s1Pct === 100 ? 100 : (isVlmTranscribing ? 70 : s1Pct))
+          next[2] = {
+            ...next[2],
+            progress: p2,
+            status: p2 === 100 ? 'completed' : (isVlmRunning || p2 > 0) ? 'in-progress' : next[2].status,
+          }
+          // Stage 3
+          const p3 = Math.max(next[3].progress, s3Pct === 100 ? 100 : (isVlmGrading ? Math.max(75, s3Pct) : s3Pct))
+          next[3] = {
+            ...next[3],
+            progress: p3,
+            status: p3 === 100 ? 'completed' : (isVlmGrading || p3 > 0) ? 'in-progress' : next[3].status,
+          }
+          // Stage 4
+          const p4 = Math.max(next[4].progress, s4Pct)
+          next[4] = {
+            ...next[4],
+            progress: p4,
+            status: p4 === 100 ? 'completed' : p4 > 0 ? 'in-progress' : next[4].status,
+          }
+          return next
+        })
       } catch (err: any) {
         console.warn('Pipeline polling error:', err.message)
       }
-    }, 6000)
-  }, [evaluationId, updateStage])
+    }, 3000)
+  }, [evaluationId])
 
   // Initial load & automatic SSE connection
   useEffect(() => {
@@ -332,7 +408,7 @@ export default function ProcessEvaluation() {
           setRunFolder(pipelineData.latest_log_dir)
         }
 
-        if (pipelineData.status === 'completed') {
+        if (pipelineData.status === 'completed' || (pipelineData.total_sheets > 0 && pipelineData.completed_sheets === pipelineData.total_sheets)) {
           setEvaluationStatus('completed')
           setStages((prev) => prev.map((st) => ({ ...st, status: 'completed', progress: 100 })))
         } else if (pipelineData.status === 'processing') {
@@ -512,19 +588,18 @@ export default function ProcessEvaluation() {
           <button
             onClick={handleStartEvaluation}
             disabled={evaluationStatus === 'completed' || evaluationStatus === 'processing' || totalScripts === 0}
-            className={`px-8 py-3 rounded-lg font-semibold transition-all duration-200 ${
-              evaluationStatus === 'completed' || evaluationStatus === 'processing' || totalScripts === 0
+            className={`px-8 py-3 rounded-lg font-semibold transition-all duration-200 ${evaluationStatus === 'completed' || evaluationStatus === 'processing' || totalScripts === 0
                 ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
                 : 'bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg'
-            }`}
+              }`}
           >
             {evaluationStatus === 'processing'
               ? 'Processing...'
               : evaluationStatus === 'completed'
-              ? 'Completed ✓'
-              : evaluationStatus === 'error'
-              ? 'Retry Pipeline'
-              : 'Start Pipeline'}
+                ? 'Completed ✓'
+                : evaluationStatus === 'error'
+                  ? 'Retry Pipeline'
+                  : 'Start Pipeline'}
           </button>
         </div>
 
@@ -603,11 +678,10 @@ export default function ProcessEvaluation() {
             <button
               type="button"
               onClick={() => setAutoScroll(!autoScroll)}
-              className={`text-xs px-2.5 py-1 rounded border font-mono transition-colors ${
-                autoScroll
+              className={`text-xs px-2.5 py-1 rounded border font-mono transition-colors ${autoScroll
                   ? 'bg-blue-600/30 text-blue-300 border-blue-500/40 hover:bg-blue-600/40'
                   : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
-              }`}
+                }`}
             >
               Auto-scroll: {autoScroll ? 'ON' : 'OFF'}
             </button>
@@ -649,32 +723,30 @@ export default function ProcessEvaluation() {
               <div key={evt.id} className="flex items-start gap-2.5 leading-relaxed py-0.5 hover:bg-slate-900/40 px-1.5 rounded transition-colors">
                 <span className="text-slate-500 shrink-0 select-none">[{evt.timestamp}]</span>
                 <span
-                  className={`shrink-0 font-semibold text-[10px] uppercase px-1.5 py-0.5 rounded border select-none ${
-                    evt.level === 'success'
+                  className={`shrink-0 font-semibold text-[10px] uppercase px-1.5 py-0.5 rounded border select-none ${evt.level === 'success'
                       ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/40'
                       : evt.level === 'error'
-                      ? 'bg-rose-950/60 text-rose-400 border-rose-800/40 font-bold'
-                      : evt.level === 'warning'
-                      ? 'bg-amber-950/60 text-amber-400 border-amber-800/40'
-                      : evt.level === 'stage'
-                      ? 'bg-purple-950/60 text-purple-400 border-purple-800/40'
-                      : 'bg-cyan-950/60 text-cyan-400 border-cyan-800/40'
-                  }`}
+                        ? 'bg-rose-950/60 text-rose-400 border-rose-800/40 font-bold'
+                        : evt.level === 'warning'
+                          ? 'bg-amber-950/60 text-amber-400 border-amber-800/40'
+                          : evt.level === 'stage'
+                            ? 'bg-purple-950/60 text-purple-400 border-purple-800/40'
+                            : 'bg-cyan-950/60 text-cyan-400 border-cyan-800/40'
+                    }`}
                 >
                   {evt.level === 'success' ? 'OK' : evt.level.toUpperCase()}
                 </span>
                 <span
-                  className={`flex-1 break-words ${
-                    evt.level === 'error'
+                  className={`flex-1 break-words ${evt.level === 'error'
                       ? 'text-rose-300 font-semibold'
                       : evt.level === 'success'
-                      ? 'text-emerald-200'
-                      : evt.level === 'warning'
-                      ? 'text-amber-200'
-                      : evt.level === 'stage'
-                      ? 'text-purple-200 font-medium'
-                      : 'text-slate-300'
-                  }`}
+                        ? 'text-emerald-200'
+                        : evt.level === 'warning'
+                          ? 'text-amber-200'
+                          : evt.level === 'stage'
+                            ? 'text-purple-200 font-medium'
+                            : 'text-slate-300'
+                    }`}
                 >
                   {evt.message}
                 </span>
@@ -710,15 +782,14 @@ export default function ProcessEvaluation() {
         {stages.map((stage, idx) => (
           <div
             key={stage.id}
-            className={`bg-white border-2 rounded-lg p-6 transition-all duration-200 ${
-              stage.status === 'in-progress'
+            className={`bg-white border-2 rounded-lg p-6 transition-all duration-200 ${stage.status === 'in-progress'
                 ? 'border-blue-400 shadow-md ring-1 ring-blue-400'
                 : stage.status === 'completed'
-                ? 'border-green-200 bg-green-50/20'
-                : stage.status === 'error'
-                ? 'border-red-300 bg-red-50/20'
-                : 'border-slate-200'
-            }`}
+                  ? 'border-green-200 bg-green-50/20'
+                  : stage.status === 'error'
+                    ? 'border-red-300 bg-red-50/20'
+                    : 'border-slate-200'
+              }`}
           >
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">
@@ -736,15 +807,14 @@ export default function ProcessEvaluation() {
             {/* Progress Bar */}
             <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
               <div
-                className={`h-2.5 rounded-full transition-all duration-500 ${
-                  stage.status === 'completed'
+                className={`h-2.5 rounded-full transition-all duration-500 ${stage.status === 'completed'
                     ? 'bg-green-500'
                     : stage.status === 'in-progress'
-                    ? 'bg-blue-600'
-                    : stage.status === 'error'
-                    ? 'bg-red-500'
-                    : 'bg-slate-300'
-                }`}
+                      ? 'bg-blue-600'
+                      : stage.status === 'error'
+                        ? 'bg-red-500'
+                        : 'bg-slate-300'
+                  }`}
                 style={{ width: `${stage.progress}%` }}
               ></div>
             </div>

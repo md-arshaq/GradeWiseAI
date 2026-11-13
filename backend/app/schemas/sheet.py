@@ -82,10 +82,10 @@ class SheetMetadata(BaseModel):
     error: str | None = None
     page_count: int = 1
     is_bundle: bool = False
-    pages: list[dict] = Field(default_factory=list)
-    page_count: int = 1
-    is_bundle: bool = False
     pages: list[dict] = Field(default_factory=list)
+    per_page_transcripts: list[dict] = Field(default_factory=list)
+    ocr_confidence: float = 1.0
+    marking_confidence: float = 1.0
 
 
 class ListSheetsResponse(BaseModel):
