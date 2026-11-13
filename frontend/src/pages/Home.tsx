@@ -163,7 +163,7 @@ function Home() {
               return (
                 <Link
                   key={evaluation.id}
-                  to={`/evaluation/${evaluation.id}/process`}
+                  to={evaluation.status === 'completed' ? `/evaluation/${evaluation.id}/results` : `/evaluation/${evaluation.id}/process`}
                   className="bg-white border-2 border-slate-200 rounded-lg p-6 hover:border-blue-400 hover:shadow-lg transition-all duration-200 group relative"
                 >
                   {/* Delete button */}
